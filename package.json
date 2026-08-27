@@ -1,0 +1,27 @@
+{
+  "name": "metadata-comparison-poc",
+  "version": "1.0.0",
+  "description": "The Vault Metadata Extraction & Comparison POC (ExifTool vs CloudConvert)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [],
+  "author": "The Vault Engineering Team",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1119.0",
+    "axios": "^1.20.0",
+    "cloudconvert": "^3.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "exiftool-vendored": "^37.2.0",
+    "express": "^5.2.1",
+    "form-data": "^4.0.6",
+    "morgan": "^1.11.0",
+    "multer": "^2.2.0",
+    "pg": "^8.23.0"
+  }
+}
