@@ -24,6 +24,32 @@ document.addEventListener('DOMContentLoaded', () => {
   initLiveApiTest();
   initDropzone();
   initDiffFilters();
+
+  // URL Query Params handling for direct tabs & auto-testing
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedTab = urlParams.get('tab');
+  const autoFileId = urlParams.get('fileId');
+  const autoBatch = urlParams.get('autoBatch');
+  const autoLive = urlParams.get('autoLive');
+
+  if (autoBatch === 'true') {
+    setTimeout(() => {
+      const btn = document.getElementById('run-batch-benchmark-btn');
+      if (btn) btn.click();
+    }, 500);
+  } else if (autoLive === 'true') {
+    setTimeout(() => {
+      const btn = document.getElementById('global-live-test-btn');
+      if (btn) btn.click();
+    }, 500);
+  } else if (autoFileId) {
+    setTimeout(() => {
+      inspectDbFile(autoFileId);
+    }, 500);
+  } else if (requestedTab) {
+    switchTab(requestedTab);
+  }
+
 });
 
 // TAB SWITCHING
