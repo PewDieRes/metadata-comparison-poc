@@ -22,11 +22,7 @@
       --accent: #6366f1;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -38,7 +34,7 @@
     }
 
     .document-container {
-      max-width: 860px;
+      max-width: 880px;
       margin: 32px auto;
       background: #ffffff;
       padding: 56px 64px;
@@ -48,9 +44,7 @@
     }
 
     @media print {
-      body {
-        background: #ffffff;
-      }
+      body { background: #ffffff; }
       .document-container {
         margin: 0;
         padding: 24px 32px;
@@ -58,12 +52,7 @@
         border: none;
         max-width: 100%;
       }
-      .no-print {
-        display: none !important;
-      }
-      .page-break {
-        page-break-before: always;
-      }
+      .page-break { page-break-before: always; }
     }
 
     .header-tag {
@@ -98,9 +87,7 @@
       color: var(--text-muted);
     }
 
-    .meta-bar span strong {
-      color: var(--text-dark);
-    }
+    .meta-bar span strong { color: var(--text-dark); }
 
     h2 {
       font-size: 18px;
@@ -121,20 +108,11 @@
       margin-bottom: 8px;
     }
 
-    p {
-      margin-bottom: 14px;
-      color: var(--text-dark);
-    }
+    p { margin-bottom: 14px; color: var(--text-dark); }
 
-    ul, ol {
-      margin-left: 20px;
-      margin-bottom: 16px;
-    }
+    ul, ol { margin-left: 20px; margin-bottom: 16px; }
 
-    li {
-      margin-bottom: 6px;
-      color: var(--text-dark);
-    }
+    li { margin-bottom: 6px; color: var(--text-dark); }
 
     .callout {
       background: var(--bg-alt);
@@ -145,10 +123,29 @@
       font-size: 14px;
     }
 
-    .callout-success {
-      background: var(--success-bg);
-      border-left-color: #22c55e;
-      color: var(--success-text);
+    .case-card {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin-bottom: 16px;
+    }
+
+    .case-title {
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .case-evidence {
+      background: #ffffff;
+      border-left: 3px solid #6366f1;
+      padding: 8px 12px;
+      margin-top: 8px;
+      font-size: 13px;
+      font-family: 'JetBrains Mono', monospace;
+      color: #334155;
     }
 
     .arch-box {
@@ -161,15 +158,6 @@
       margin: 18px 0;
       line-height: 1.5;
       overflow-x: auto;
-    }
-
-    .arch-title {
-      color: #94a3b8;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 10px;
     }
 
     table {
@@ -198,9 +186,7 @@
       vertical-align: top;
     }
 
-    tr:nth-child(even) td {
-      background: #fafafa;
-    }
+    tr:nth-child(even) td { background: #fafafa; }
 
     .badge-pass {
       display: inline-block;
@@ -242,7 +228,6 @@
 
     <div class="meta-bar">
       <span><strong>Status:</strong> Proposal &amp; Validated POC</span>
-      <span><strong>Target System:</strong> The Vault Media Pipeline</span>
       <span><strong>Date:</strong> August 2026</span>
     </div>
 
@@ -263,29 +248,8 @@
       <strong>Proposed Solution:</strong> We propose replacing the CloudConvert integration inside our <strong>existing metadata extraction AWS Lambda</strong> with a <strong>dedicated, in-house extraction engine (ExifTool)</strong>. Because the Lambda infrastructure is already provisioned and executes asynchronously, infrastructure compute costs remain virtually unchanged, while completely eliminating external SaaS billing. To further improve resilience, we recommend introducing a standard message queue (Amazon SQS) between the backend and Lambda to buffer high-volume upload bursts.
     </div>
 
-    <h2>2. Ingestion Architecture &amp; Technical Rationale</h2>
-
-    <h3>Current Architecture Workflow</h3>
+    <h2>2. Ingestion Architecture Workflow</h2>
     <div class="arch-box">
-      <div class="arch-title">Current CloudConvert SaaS Workflow</div>
-1. [User / Frontend] ──(Direct File Upload)──> [Amazon S3]
-2. [Frontend] ──(Upload Complete API Call)──> [Backend Service]
-3. [Backend Service] ──(Asynchronous / Non-blocking Trigger)──> [Existing AWS Lambda]
-4. [Existing AWS Lambda] ──(External API Call: 2s - 28s)──> [CloudConvert SaaS]
-5. [Existing AWS Lambda] ──(Direct Database Save)──> [PostgreSQL files.metadata]
-    </div>
-
-    <ul>
-      <li><strong>Step 1:</strong> The user uploads the media file directly from the browser to Amazon S3.</li>
-      <li><strong>Step 2:</strong> Once the S3 upload finishes, the frontend notifies the backend via an API call.</li>
-      <li><strong>Step 3:</strong> The backend immediately triggers the metadata extraction AWS Lambda in an <strong>asynchronous, non-blocking (fire-and-forget)</strong> manner, allowing the API call to complete instantly without waiting for metadata extraction.</li>
-      <li><strong>Step 4:</strong> The Lambda communicates with the external CloudConvert API to process the file and retrieve technical headers.</li>
-      <li><strong>Step 5:</strong> When extraction completes, the <strong>Lambda writes the metadata directly into the PostgreSQL database</strong> using its direct database connection.</li>
-    </ul>
-
-    <h3>Target Architecture (In-House Engine with Queue Buffering)</h3>
-    <div class="arch-box">
-      <div class="arch-title">Target In-House ExifTool Workflow</div>
 1. [User / Frontend] ──(Direct File Upload)──> [Amazon S3]
 2. [Frontend] ──(Upload Complete API Call)──> [Backend Service]
 3. [Backend Service] ──(Enqueue Task)──> [Amazon SQS Queue Buffer]
@@ -293,30 +257,104 @@
 5. [Existing AWS Lambda] ──(Direct Database Save)──> [PostgreSQL files.metadata]
     </div>
 
-    <h3>Key Problem Analyses &amp; Solutions</h3>
-    <ul>
-      <li>
-        <strong>Problem 1 (Upstream Version Changes &amp; Data Inconsistencies):</strong> Because CloudConvert is an unversioned third-party service, updates to its internal toolchain occur without notice. Over six years of operation, this has resulted in mixed data structures across historical campaign files (older assets contain legacy attribute names; newer assets contain updated names).<br>
-        <em>The Solution:</em> By deploying the engine directly within our existing Lambda, we lock in a specific, stable version. The data structure remains 100% consistent and predictable. Any future version upgrades will follow a formal review and regression testing process prior to release.
-      </li>
-      <li>
-        <strong>Problem 2 (Extraction Latency &amp; Extended Lambda Lifecycles):</strong> Currently, when the Lambda runs, it must wait for CloudConvert to create an external job, queue the task on remote servers, process it, and respond over the public internet (routinely taking 2 to 28 seconds per asset).<br>
-        <em>The Solution:</em> With the in-house engine embedded directly in the Lambda, the function reads the file header from S3 and completes extraction in <strong>under 400 milliseconds</strong>, then immediately updates the database. This reduces Lambda execution time by over 90% and eliminates external API failure risks.
-      </li>
-      <li>
-        <strong>Problem 3 (Zero Additional Infrastructure Cost):</strong> Because an AWS Lambda function is already in place to handle metadata triggers and database writes, this upgrade simply updates the logic inside the existing function. There is no need to purchase new compute instances or increase infrastructure spend, while 100% of third-party CloudConvert credit fees are eliminated.
-      </li>
-    </ul>
+    <h2>3. Forensic Analysis: 6-Year Schema Drift &amp; Database Impact</h2>
+    <p>
+      A forensic database audit of <strong>593,504 files</strong> in the database revealed how CloudConvert's silent upstream tool upgrades generated distinct generations of conflicting metadata structures:
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Generation</th>
+          <th>Engine Version Recorded</th>
+          <th>Asset Count</th>
+          <th>Date Range</th>
+          <th>Impact on Database Records</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Generation 1</strong></td>
+          <td><code>v12.36</code></td>
+          <td>18,029</td>
+          <td>Feb 2022 – Feb 2024</td>
+          <td>Early CloudConvert worker version (decimal duration formats, early bitrate tags)</td>
+        </tr>
+        <tr>
+          <td><strong>Generation 2</strong></td>
+          <td><code>v12.56</code></td>
+          <td>271,126</td>
+          <td>Nov 2021 – Aug 2026</td>
+          <td>CloudConvert container upgrade (timecode duration shifts, enhanced vector tags)</td>
+        </tr>
+        <tr>
+          <td><strong>Generation 3</strong></td>
+          <td><code>NO_EXIFTOOL_TAG</code></td>
+          <td>272,602</td>
+          <td>Mar 2022 – Aug 2026</td>
+          <td>S3 header-only or non-standard extractions</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Real-World Discrepancy Case Studies from Historical Data</h3>
+
+    <div class="case-card">
+      <div class="case-title">Case 1: Video Duration Format Shift (Decimal Seconds vs. Timecodes)</div>
+      <p>In earlier uploads, video duration was stored as a decimal string with unit (<code>"20.00 s"</code>). Following upstream tool updates, the format shifted to a timecode string (<code>"0:00:30"</code>). Standard numerical parsing functions (<code>parseFloat</code>) evaluate <code>"0:00:30"</code> as <code>0</code>, causing downstream rendering engines to miscalculate asset length unless complex string-splitting fallback logic was applied.</p>
+      <div class="case-evidence">
+        • File #259754 (SO_Enterprise_C12_Rent_A_Car_ENG_Molde_1.mp4, 2024-09-19): Duration: "20.00 s"<br>
+        • File #475028 (Allstate_C1_Generic_ATX_Base_South.mp4, 2026-01-27): Duration: "0:00:30"
+      </div>
+    </div>
+
+    <div class="case-card">
+      <div class="case-title">Case 2: Bitrate Tag Splitting (AvgBitrate vs. Bitrate vs. VideoBitrate)</div>
+      <p>Older systems looked for a single <code>Bitrate</code> field. Newer MP4/MOV extractions exclusively output <code>AvgBitrate</code>, while MPEG videos output <code>VideoBitrate</code>. Across 142,287 MP4 videos, 117,445 files contain <code>AvgBitrate</code>, while only 8 files contain <code>Bitrate</code>. Code querying <code>metadata.Bitrate</code> returned empty values for over 99% of video assets.</p>
+    </div>
+
+    <div class="case-card">
+      <div class="case-title">Case 3: Adobe Illustrator Canvas Dimensions (MaxPageSizeW vs. ImageWidth)</div>
+      <p>Vector artwork files (<code>.ai</code> / <code>.eps</code>) do not contain a pixel grid. ExifTool returns <code>ImageWidth: null</code> and instead stores the true artboard canvas dimensions inside <code>MaxPageSizeW</code> and <code>BoundingBox</code>. Across 2,099 Adobe Illustrator master assets, <code>ImageWidth</code> is completely null.</p>
+      <div class="case-evidence">
+        • File #381646 (SO_P&G_Gillette_C2_SharedStatic_Base_Artwork_1.ai): ImageWidth: null, MaxPageSizeW: "242", BoundingBox: "-4 -263 1746 14"<br>
+        • File #307768 (SO_UEFA_C6_VAR_Base_144px_(246m)_1.ai): ImageWidth: null, MaxPageSizeW: "18800"
+      </div>
+    </div>
+
+    <div class="case-card">
+      <div class="case-title">Case 4: Document Page Count Tag Changes (PageCount vs. Pages)</div>
+      <p>Early PostScript files recorded document lengths under <code>Pages</code>, whereas standard PDF extractions output <code>PageCount</code>.</p>
+      <div class="case-evidence">
+        • File #308888 (Brax_C15_SUPERBET_ISG_Virtual_Carpets_All_Venues_1.pdf): PageCount: "1", Pages: null<br>
+        • 30 legacy PostScript documents contain Pages: 1
+      </div>
+    </div>
+
+    <div class="case-card">
+      <div class="case-title">Case 5: PNG Resolution &amp; DPI Inconsistencies (XResolution vs. PixelsPerUnitX)</div>
+      <p>Image resolution is recorded either under <code>XResolution</code> (in inches) or raw pixel density <code>PixelsPerUnitX</code> (in meters) depending on the authoring software and upstream parser state.</p>
+      <div class="case-evidence">
+        • File #562777 (1XBET_C11_222_BA2_BGR.png): XResolution: "144", ResolutionUnit: "inches", PixelsPerUnitX: "5669"<br>
+        • File #546446 (AFC_Commercial_Team_C4_Ca3_FT_5.png): XResolution: null, PixelsPerUnitX: "2835"
+      </div>
+    </div>
+
+    <div class="case-card">
+      <div class="case-title">Case 6: Photoshop Layer Data &amp; Color Spaces (PSD Assets)</div>
+      <p>Master Photoshop PSD files require layer count and color space data for automated rendering. Upstream changes varied between returning raw color space integers vs. descriptive strings.</p>
+      <div class="case-evidence">
+        • File #393594 (National_Partners-Shared_Artwork_C9_V2_Miele_Base_144_1.psd): LayerCount: "4", ColorSpace: "sRGB"<br>
+        • File #377806 (SO_Apple_C7_Stick_Group_2_Base_2.psd): LayerCount: "11", ColorSpace: "Uncalibrated"
+      </div>
+    </div>
 
     <div class="page-break"></div>
 
-    <h2>3. Proof of Concept (POC) Validation &amp; Benchmark Results</h2>
+    <h2>4. Proof of Concept (POC) Validation &amp; Benchmark Results</h2>
     <p>
-      A Proof of Concept was developed to verify data parity between live CloudConvert API responses and the in-house extraction engine.
+      A Proof of Concept was developed to verify data parity between live CloudConvert API responses and the in-house extraction engine across representative media formats in The Vault catalog:
     </p>
-
-    <h3>A. Testing Scope Across Unique Media Formats</h3>
-    <p>Validation was conducted against representative sample assets covering all core media formats supported by The Vault:</p>
 
     <table>
       <thead>
@@ -343,7 +381,7 @@
         <tr>
           <td><strong>MP4</strong></td>
           <td>Video commercials, board renders</td>
-          <td>Resolution, Duration, Framerate, Bitrate, Audio/Video Codecs</td>
+          <td>Resolution, Duration, Framerate, Bitrate, Codecs</td>
           <td><span class="badge-pass">100% Parity</span></td>
         </tr>
         <tr>
@@ -355,7 +393,7 @@
         <tr>
           <td><strong>PDF</strong></td>
           <td>Print proofs, campaign specifications</td>
-          <td>Page Count, PDF Version, Creator Software, Linearization</td>
+          <td>Page Count, PDF Version, Creator Software</td>
           <td><span class="badge-pass">100% Parity</span></td>
         </tr>
         <tr>
@@ -367,7 +405,7 @@
         <tr>
           <td><strong>Adobe Photoshop (PSD)</strong></td>
           <td>Multi-layer master graphics</td>
-          <td>Layer Count, Blend Modes, Layer Names, Color Profile</td>
+          <td>Layer Count, Blend Modes, Layer Names, ICC</td>
           <td><span class="badge-pass">100% Parity</span></td>
         </tr>
         <tr>
@@ -379,9 +417,7 @@
       </tbody>
     </table>
 
-    <h3>B. Live Real-Time Benchmark Comparison</h3>
-    <p>A live benchmark was conducted comparing real-time CloudConvert API responses against the in-house engine on identical assets:</p>
-
+    <h3>Live Real-Time Benchmark Comparison</h3>
     <table>
       <thead>
         <tr>
@@ -394,7 +430,7 @@
       <tbody>
         <tr>
           <td><strong>Processing Latency</strong></td>
-          <td>~28,990 ms (Upload + Queue + Network)</td>
+          <td>~28,990 ms (Upload + Remote Queue + Network)</td>
           <td><strong>381 ms</strong> (Direct stream parse)</td>
           <td><span class="badge-highlight">76x Faster Extraction</span></td>
         </tr>
@@ -431,29 +467,14 @@
       </tbody>
     </table>
 
-    <div class="callout callout-success">
-      <strong>Technical Confirmation:</strong> The outputs match identically because CloudConvert uses this exact open-source engine internally. Running it directly within our existing AWS Lambda delivers the exact same data without third-party transit or recurring subscription fees.
-    </div>
-
-    <h2>4. Architectural Enhancements &amp; Stability</h2>
-    <p>
-      In addition to replacing the external service call inside the Lambda, we recommend adding an <strong>Amazon SQS message queue buffer</strong> between the backend API and the Lambda:
-    </p>
+    <h2>5. Architectural Enhancements &amp; Stability</h2>
     <ul>
-      <li><strong>Burst Upload Protection:</strong> During large campaign launches where multiple assets are uploaded simultaneously, the queue cleanly buffers incoming jobs. This ensures the Lambda processes files steadily without spiking concurrent database connections.</li>
-      <li><strong>Automated Error Handling:</strong> If an invalid or corrupted file is uploaded, the queue safely routes it to a Dead-Letter Queue (DLQ) for alerting, without interrupting the processing of other assets.</li>
-      <li><strong>Enhanced Security:</strong> Media assets remain entirely inside our private AWS environment and are never transmitted to external third-party infrastructure.</li>
+      <li><strong>Burst Upload Protection:</strong> During large campaign launches, Amazon SQS buffers incoming jobs to ensure the Lambda processes files steadily without database connection spikes.</li>
+      <li><strong>Automated Error Handling:</strong> Corrupt or malformed files route to a Dead-Letter Queue (DLQ) for alerting without blocking remaining assets.</li>
+      <li><strong>Enhanced Security:</strong> Media assets remain entirely inside our private AWS environment.</li>
     </ul>
 
-    <h2>5. Rollout Strategy</h2>
-    <ol>
-      <li><strong>Phase 1 (Staging Verification):</strong> Deploy the updated Lambda function with the in-house engine to staging environments for end-to-end workflow validation.</li>
-      <li><strong>Phase 2 (Dual Verification in Production):</strong> Run the in-house extraction alongside the existing process for a 14-day observation window to confirm 100% parity across live production uploads.</li>
-      <li><strong>Phase 3 (Full Cutover &amp; Decommissioning):</strong> Decommission the external CloudConvert integration and terminate third-party credit subscriptions.</li>
-    </ol>
-
     <h2>6. Strategic Business Impact Summary</h2>
-
     <table>
       <thead>
         <tr>
@@ -486,7 +507,7 @@
           <td><strong>Data Consistency</strong></td>
           <td>Vulnerable to unannounced upstream changes</td>
           <td><strong>Fixed, version-controlled schema</strong></td>
-          <td>Eliminates code complexity and maintenance overhead.</td>
+          <td>Eliminates code complexity and maintenance.</td>
         </tr>
         <tr>
           <td><strong>Queue Stability</strong></td>
@@ -498,7 +519,7 @@
           <td><strong>Data Privacy</strong></td>
           <td>Files sent to external third-party servers</td>
           <td><strong>Contained within private AWS cloud</strong></td>
-          <td>Full data privacy and enterprise compliance.</td>
+          <td>Full data privacy and compliance.</td>
         </tr>
       </tbody>
     </table>

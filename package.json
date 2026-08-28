@@ -23,5 +23,8 @@
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "docx": "^9.7.1"
   }
 }

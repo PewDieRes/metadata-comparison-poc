@@ -22,27 +22,7 @@ A Proof of Concept (POC) conducted against representative unique media formats a
 
 ---
 
-## 2. Ingestion Architecture & Technical Rationale
-
-### Current Architecture Workflow
-
-```
-1. [User / Frontend] ──(Direct File Upload)──> [Amazon S3]
-2. [Frontend] ──(Upload Complete API Call)──> [Backend Service]
-3. [Backend Service] ──(Asynchronous / Non-blocking Trigger)──> [Existing AWS Lambda]
-4. [Existing AWS Lambda] ──(External API Call: 2s - 28s)──> [CloudConvert SaaS]
-5. [Existing AWS Lambda] ──(Direct Database Save)──> [PostgreSQL files.metadata]
-```
-
-* **Step 1**: The user uploads the media file directly from the browser to Amazon S3.
-* **Step 2**: Once the S3 upload finishes, the frontend notifies the backend via an API call.
-* **Step 3**: The backend immediately triggers the metadata extraction AWS Lambda in an **asynchronous, non-blocking (fire-and-forget)** manner, allowing the API call to complete instantly without waiting for metadata extraction.
-* **Step 4**: The Lambda communicates with the external CloudConvert API to process the file and retrieve technical headers.
-* **Step 5**: When extraction completes, the **Lambda writes the metadata directly into the PostgreSQL database** using its direct database connection.
-
----
-
-### Target Architecture (In-House Engine with Queue Buffering)
+## 2. Ingestion Architecture Workflow
 
 ```
 1. [User / Frontend] ──(Direct File Upload)──> [Amazon S3]
@@ -52,44 +32,85 @@ A Proof of Concept (POC) conducted against representative unique media formats a
 5. [Existing AWS Lambda] ──(Direct Database Save)──> [PostgreSQL files.metadata]
 ```
 
-### Problem 1: Upstream Version Changes and Data Inconsistencies
-Because CloudConvert is an unversioned third-party service, updates to its internal toolchain occur without notice. Over six years of operation, this has resulted in mixed data structures across historical campaign files:
-
-* Older assets contain legacy attribute names.
-* Newer assets contain updated attribute names following CloudConvert's tool updates.
-* **Engineering Impact**: Our team has repeatedly been required to build and maintain conditional fallback logic across backend services (such as evaluating `metadata.ImageWidth` alongside `metadata.width`, `metadata.ImageSize`, and `metadata.MaxPageSizeW`) to ensure older campaign assets remain fully compatible with newer application features.
-
-**The Solution**: By deploying the engine directly within our existing Lambda, we lock in a specific, stable version. The data structure remains 100% consistent and predictable. Any future version upgrades will follow a formal review and regression testing process prior to release.
-
-### Problem 2: Extraction Latency and Extended Lambda Lifecycles
-Currently, when the Lambda runs, it must wait for CloudConvert to create an external job, queue the task on remote servers, process it, and respond over the public internet. This multi-hop process routinely takes **between 2 and 28 seconds per asset**.
-
-**The Solution**: With the in-house engine embedded directly in the Lambda, the function reads the file header from S3 and completes extraction in **under 400 milliseconds**, then immediately updates the database. This reduces Lambda execution time by over 90% and eliminates external API failure risks.
-
-### Problem 3: Zero Additional Infrastructure Cost
-Because an AWS Lambda function is already in place to handle metadata triggers and database writes, this upgrade simply updates the logic inside the existing function. There is no need to purchase new compute instances or increase infrastructure spend, while 100% of third-party CloudConvert credit fees are eliminated.
+* **Step 1**: The user uploads the media file directly from the browser to Amazon S3.
+* **Step 2**: Once the S3 upload finishes, the frontend notifies the backend via an API call.
+* **Step 3**: The backend places the extraction task onto an **Amazon SQS message queue buffer** in a non-blocking (fire-and-forget) manner, completing the user request immediately.
+* **Step 4**: The existing AWS Lambda reads the message and extracts the technical metadata directly from the S3 stream in **under 400 milliseconds**.
+* **Step 5**: The **Lambda writes the normalized metadata directly into the PostgreSQL database** using its database connection.
 
 ---
 
-## 3. Proof of Concept (POC) Validation & Benchmark Results
+## 3. Forensic Analysis: 6-Year Schema Drift & Database Impact
 
-A Proof of Concept was developed to verify data parity between live CloudConvert API responses and the in-house extraction engine.
+A forensic database audit of **593,504 files** in the database revealed how CloudConvert's silent upstream tool upgrades generated distinct generations of conflicting metadata structures:
 
-### A. Testing Scope Across Unique Media Formats
-Validation was conducted against representative sample assets covering all core media formats supported by The Vault:
+### Historical Metadata Generations in the Database
+
+| Generation | Engine Version Recorded | Asset Count | Date Range | Impact on Database Records |
+| :--- | :---: | :---: | :---: | :--- |
+| **Generation 1** | **`v12.36`** | **18,029** | Feb 2022 – Feb 2024 | Early CloudConvert worker version (decimal duration formats, early bitrate tags) |
+| **Generation 2** | **`v12.56`** | **271,126** | Nov 2021 – Aug 2026 | CloudConvert container upgrade (timecode duration shifts, enhanced vector artboard tags) |
+| **Generation 3** | **`NO_EXIFTOOL_TAG`** | **272,602** | Mar 2022 – Aug 2026 | S3 header-only or non-standard extractions |
+
+---
+
+### Real-World Discrepancy Case Studies from Historical Data
+
+#### Case 1: Video Duration Format Shift (Decimal Seconds vs. Timecodes)
+* **The Problem**: In earlier uploads, video duration was stored as a decimal string with unit (`"20.00 s"`). Following upstream tool updates, the format shifted to a timecode string (`"0:00:30"`).
+* **Engineering Impact**: Standard numerical parsing functions (`parseFloat`) evaluate `"0:00:30"` as `0`, causing downstream rendering engines to miscalculate asset length unless complex string-splitting fallback logic was applied.
+* **Database Evidence**:
+  * File `#259754` (`SO_Enterprise_C12_Rent_A_Car_ENG_Molde_1.mp4`, uploaded 2024-09-19): `Duration: "20.00 s"`
+  * File `#475028` (`Allstate_C1_Generic_ATX_Base_South.mp4`, uploaded 2026-01-27): `Duration: "0:00:30"`
+
+#### Case 2: Bitrate Tag Splitting (`AvgBitrate` vs. `Bitrate` vs. `VideoBitrate`)
+* **The Problem**: Older systems looked for a single `Bitrate` field. Newer MP4/MOV extractions exclusively output `AvgBitrate`, while MPEG videos output `VideoBitrate`.
+* **Database Evidence**: Across 142,287 MP4 videos, **117,445 files** contain `AvgBitrate`, while only **8 files** contain `Bitrate`. Code querying `metadata.Bitrate` returned empty values for over 99% of video assets.
+
+#### Case 3: Adobe Illustrator Canvas Dimensions (`MaxPageSizeW` vs. `ImageWidth`)
+* **The Problem**: Vector artwork files (`.ai` / `.eps`) do not contain a pixel grid. ExifTool returns `ImageWidth: null` and instead stores the true artboard canvas dimensions inside `MaxPageSizeW` and `BoundingBox`.
+* **Database Evidence**: Across 2,099 Adobe Illustrator master assets, `ImageWidth` is completely null. Backend services were forced to write dedicated conditional handlers for Illustrator:
+  * File `#381646` (`SO_P&G_Gillette_C2_SharedStatic_Base_Artwork_1.ai`): `ImageWidth: null`, `MaxPageSizeW: "242"`, `BoundingBox: "-4 -263 1746 14"`
+  * File `#307768` (`SO_UEFA_C6_VAR_Base_144px_(246m)_1.ai`): `ImageWidth: null`, `MaxPageSizeW: "18800"`
+
+#### Case 4: Document Page Count Tag Changes (`PageCount` vs. `Pages`)
+* **The Problem**: Early PostScript files recorded document lengths under `Pages`, whereas standard PDF extractions output `PageCount`.
+* **Database Evidence**:
+  * File `#308888` (`Brax_C15_SUPERBET_ISG_Virtual_Carpets_All_Venues_1.pdf`): `PageCount: "1"`, `Pages: null`
+  * 30 legacy PostScript documents contain `Pages: 1`.
+
+#### Case 5: PNG Resolution & DPI Inconsistencies (`XResolution` vs. `PixelsPerUnitX`)
+* **The Problem**: Image resolution is recorded either under `XResolution` (in inches) or raw pixel density `PixelsPerUnitX` (in meters) depending on the authoring software and upstream parser state.
+* **Database Evidence**:
+  * File `#562777` (`1XBET_C11_222_BA2_BGR.png`): contains `XResolution: "144"`, `ResolutionUnit: "inches"`, and `PixelsPerUnitX: "5669"`.
+  * File `#546446` (`AFC_Commercial_Team_C4_Ca3_FT_5.png`): `XResolution: null`, and only `PixelsPerUnitX: "2835"`.
+
+#### Case 6: Photoshop Layer Data & Color Spaces (PSD Assets)
+* **The Problem**: Master Photoshop PSD files require layer count and color space data for automated rendering. Upstream changes varied between returning raw color space integers vs. descriptive strings.
+* **Database Evidence**:
+  * File `#393594` (`National_Partners-Shared_Artwork_C9_V2_Miele_Base_144_1.psd`): `LayerCount: "4"`, `ColorSpace: "sRGB"`
+  * File `#377806` (`SO_Apple_C7_Stick_Group_2_Base_2.psd`): `LayerCount: "11"`, `ColorSpace: "Uncalibrated"`
+
+---
+
+## 4. Proof of Concept (POC) Validation & Benchmark Results
+
+A Proof of Concept was developed to verify data parity between live CloudConvert API responses and the in-house extraction engine across representative media formats in The Vault catalog:
 
 | Media Format | Asset Type | Extracted Technical Attributes | Verification Status |
 | :--- | :--- | :--- | :--- |
 | **PNG** | Brand graphics, transparent overlays | Dimensions, Bit Depth, Color Type, DPI, Gamma | 100% Parity |
 | **JPEG** | Photography, campaign images | Dimensions, EXIF metadata, Megapixels, Color Space | 100% Parity |
-| **MP4** | Video commercials, board renders | Resolution, Duration, Framerate, Bitrate, Audio/Video Codecs | 100% Parity |
+| **MP4** | Video commercials, board renders | Resolution, Duration, Framerate, Bitrate, Codecs | 100% Parity |
 | **QuickTime MOV** | High-definition master videos | Resolution, TimeScale, Duration, Codec profile | 100% Parity |
 | **PDF** | Print proofs, campaign specifications | Page Count, PDF Version, Creator Software, Linearization | 100% Parity |
 | **Adobe Illustrator (AI / EPS)** | Vector artwork, signage dimensions | Artboard Dimensions, Bounding Box, XMP metadata | 100% Parity |
 | **Adobe Photoshop (PSD)** | Multi-layer master graphics | Layer Count, Blend Modes, Layer Names, Color Profile | 100% Parity |
 | **WebP** | Web banners | Dimensions, Compression mode, Alpha channel | 100% Parity |
 
-### B. Live Real-Time Benchmark Comparison
+---
+
+### Live Real-Time Benchmark Comparison
 
 A live benchmark was conducted comparing real-time CloudConvert API responses against the in-house engine on identical assets:
 
@@ -106,23 +127,13 @@ A live benchmark was conducted comparing real-time CloudConvert API responses ag
 
 ---
 
-## 4. Architectural Enhancements & Stability
+## 5. Architectural Enhancements & Stability
 
 In addition to replacing the external service call inside the Lambda, we recommend adding an **Amazon SQS message queue buffer** between the backend API and the Lambda:
 
 1. **Burst Upload Protection**: During large campaign launches where multiple assets are uploaded simultaneously, the queue cleanly buffers incoming jobs. This ensures the Lambda processes files steadily without spiking concurrent database connections.
 2. **Automated Error Handling**: If an invalid or corrupted file is uploaded, the queue safely routes it to a Dead-Letter Queue (DLQ) for alerting, without interrupting the processing of other assets.
 3. **Enhanced Security**: Media assets remain entirely inside our private AWS environment and are never transmitted to external third-party infrastructure.
-
----
-
-## 5. Rollout Strategy
-
-To ensure a seamless, zero-downtime transition:
-
-1. **Phase 1 (Staging Verification)**: Deploy the updated Lambda function with the in-house engine to staging environments for end-to-end workflow validation.
-2. **Phase 2 (Dual Verification in Production)**: Run the in-house extraction alongside the existing process for a 14-day observation window to confirm 100% parity across live production uploads.
-3. **Phase 3 (Full Cutover & Decommissioning)**: Decommission the external CloudConvert integration and terminate third-party credit subscriptions.
 
 ---
 
