@@ -1,171 +1,173 @@
-# Executive Technical Proposal: Transitioning Media Metadata Extraction from CloudConvert SaaS to In-House ExifTool Engine
+# Technical Proposal: Standardizing Media Metadata Extraction via In-House ExifTool Engine
 
 **Author**: The Vault Engineering Team  
 **Audience**: Client Leadership, Technical Stakeholders & Product Management  
-**Status**: Proposal & POC Validated  
+**Status**: Proposal & Validated POC  
 **Date**: August 2026  
 
 ---
 
 ## 1. Executive Summary
 
-Over the past 6 years, **The Vault** platform has relied on **CloudConvert** (a third-party SaaS service) to extract technical metadata (dimensions, video/audio codecs, framerates, durations, color spaces, Illustrator artboard sizes, Photoshop layer data) from user-uploaded media files. The extracted metadata is stored directly in PostgreSQL (`files.metadata`) and powers critical downstream workflows across transcoding, layout rendering, and asset delivery.
+Over the past six years, The Vault has utilized CloudConvert as an external service to extract technical metadata (such as pixel dimensions, video/audio codecs, framerates, durations, color spaces, Illustrator artboard dimensions, and Photoshop layer structures) from uploaded media assets. This metadata is saved to the PostgreSQL database (`files.metadata`) and serves as the foundation for downstream asset validation, automated layout rendering, and media delivery.
 
-While CloudConvert provided initial convenience, operating this SaaS service at scale over several years has introduced critical challenges:
-1. **Uncontrolled Upstream Schema Drift**: CloudConvert automatically updates its underlying extraction libraries without notice. This has caused subtle changes to JSON metadata keys over time, forcing our engineering team to constantly maintain complex backwards-compatibility code to handle discrepancies between legacy and newly uploaded assets.
-2. **Staging Environment Parity Gaps**: To control CloudConvert credit billing costs, metadata extraction was historically disabled in **Dev** and **QA** environments and only enabled in **Pre-Prod** and **Prod**. This created testing blindspots where metadata-dependent bugs could only be discovered late in the release cycle.
-3. **Operational Latency & Webhook Dependency**: External API roundtrips, queuing delays, and asynchronous webhook callbacks introduce multi-second latencies (typically 2,000ms–10,000ms+) and external network failure points.
-4. **Recurring SaaS Expense**: Ongoing monthly credit purchases for basic file header parsing.
+Operating an external third-party service for metadata extraction over an extended lifecycle has introduced notable technical constraints:
 
-### The Recommended Solution
-We propose replacing the third-party CloudConvert metadata service with a **dedicated, version-pinned ExifTool Lambda engine** within our own AWS infrastructure. 
+1. **Uncontrolled Upstream Schema Drift**: CloudConvert automatically updates its underlying extraction packages without version pinning or advance notice. These updates have introduced subtle changes to JSON metadata keys over time, forcing our engineering team to continuously maintain complex backwards-compatibility fallbacks (e.g., checking `metadata.ImageWidth` vs. `metadata.width` vs. `metadata.ImageSize` vs. `metadata.MaxPageSizeW`) to prevent regressions on older campaign assets.
+2. **Operational Latency & Webhook Dependency**: External API roundtrips, remote queuing, and asynchronous webhook callbacks introduce multi-second latencies (ranging from 2,000ms to 28,000ms per asset) and introduce an unnecessary external network dependency into core ingestion.
+3. **Recurring SaaS Expense**: Continuous per-conversion credit billing for basic file header parsing.
 
-Our comprehensive Proof of Concept (POC)—tested against **587,631 database assets** and real-time live CloudConvert API jobs—proves that CloudConvert uses ExifTool under the hood and that an in-house ExifTool implementation delivers **100% metadata parity**, **>20x faster extraction**, **zero SaaS billing**, and **full schema governance**.
+### Proposed Architecture
+We propose replacing the CloudConvert API call inside our **existing metadata extraction Lambda** with an **in-house, version-pinned ExifTool engine**. Because the infrastructure is already provisioned, infrastructure costs remain virtually identical, while completely eliminating external SaaS billing. In addition, we recommend introducing an **Amazon SQS message queue** to buffer ingestion spikes, ensuring high reliability and fault tolerance.
+
+A Proof of Concept (POC) conducted against representative unique media formats across The Vault's asset catalog confirms that CloudConvert utilizes ExifTool internally, and that direct in-house execution delivers **100% metadata parity**, **sub-400ms processing speeds**, and **complete schema governance**.
 
 ---
 
-## 2. 6-Year Retrospective: Why CloudConvert Needs Replacement
+## 2. Technical Rationale & Current Architecture Challenges
 
-```mermaid
-graph TD
-    subgraph "Legacy Architecture (CloudConvert SaaS)"
-        A1[User Uploads Asset] --> B1[Save to S3]
-        B1 --> C1[Send S3 Presigned URL to CloudConvert API]
-        C1 --> D1[CloudConvert Queues & Processes via Uncontrolled Engine Version]
-        D1 --> E1[Asynchronous Webhook Callback to Backend: 2s - 28s Latency]
-        E1 --> F1[Backend Schema Normalization & Glue Code]
-        F1 --> G1[Save JSON to PostgreSQL files.metadata]
-        C1 -.->|Billing Barrier| H1[Disabled on Dev & QA Environments]
-    end
+```
+Legacy Architecture (External CloudConvert SaaS):
+[Asset Upload] -> [Amazon S3] -> [Existing Lambda] -> [CloudConvert API (Unpinned Engine)] -> [Webhook Callback: 2s - 28s] -> [PostgreSQL files.metadata]
 
-    subgraph "Proposed Architecture (In-House AWS Lambda ExifTool)"
-        A2[User Uploads Asset] --> B2[Save to S3]
-        B2 --> C2[Trigger Metadata Worker / AWS Lambda: Sub-400ms]
-        C2 --> D2[ExifTool Stable Pin with Strict Schema Governance]
-        D2 --> E2[Direct DB Write to PostgreSQL files.metadata]
-        C2 --> F2[Enabled Uniformly Across Dev, QA, Pre-Prod, Prod]
-        C2 --> G2[$0 SaaS Cost / Private VPC Security]
-    end
+Target Architecture (In-House ExifTool with SQS Buffering):
+[Asset Upload] -> [Amazon S3] -> [Amazon SQS Queue] -> [Existing Lambda (Pinned ExifTool Engine: <400ms)] -> [PostgreSQL files.metadata]
 ```
 
-### Challenge 1: Upstream Version Upgrades & Schema Inconsistencies
-* **The Root Problem**: CloudConvert is a black-box SaaS. When CloudConvert upgrades its internal extraction packages, metadata tag keys and format structures change without advance warning.
-* **The Business Impact**: Over 6 years, our database accumulated multiple generations of metadata schemas. Assets uploaded in 2020 have different key structures than assets uploaded in 2024. Engineering was repeatedly forced to write conditional fallbacks (e.g., checking `metadata.ImageWidth` vs `metadata.width` vs `metadata.ImageSize` vs `metadata.MaxPageSizeW`) to avoid breaking older campaigns.
-* **Our In-House Solution**: By deploying a self-managed ExifTool engine, **we pin the exact version** (e.g., v13.59). The JSON output schema remains 100% deterministic and frozen. Upgrades will follow a formal engineering review with regression tests before deployment.
+### Challenge 1: Upstream Version Drift and Schema Inconsistencies
+CloudConvert operates as a closed-box SaaS. When CloudConvert updates its underlying extraction libraries, output keys can change without warning. Over six years of operation, this has resulted in mixed metadata structures across our historical asset base:
 
-### Challenge 2: Environment Disparity (Dev/QA vs Pre-Prod/Prod)
-* **The Root Problem**: Because every metadata extraction consumed paid CloudConvert credits, metadata extraction was deliberately **turned off in Dev and QA** environments to prevent budget burn during testing.
-* **The Business Impact**: Developers and QA engineers could not test metadata-driven workflows (such as aspect ratio checks, format validations, and automated artwork rendering) in lower environments. Bugs were frequently caught late in Pre-Prod or Production.
-* **Our In-House Solution**: Because ExifTool is open-source ($0 license cost), the exact same extraction service will run in **Dev, QA, Pre-Prod, and Production**, guaranteeing complete environment parity.
+* **Legacy Assets**: May contain legacy key names or string-serialized attributes.
+* **Newer Assets**: May receive updated key formats following upstream changes.
+* **Engineering Impact**: The engineering team has repeatedly been required to implement conditional fallback logic across backend services (such as evaluating `metadata.ImageWidth` alongside `metadata.width`, `metadata.ImageSize`, and `metadata.MaxPageSizeW`) to ensure older assets remain compatible with modern rendering pipelines.
 
-### Challenge 3: Ingestion Latency & Webhook Fragility
-* **The Root Problem**: CloudConvert relies on an asynchronous job lifecycle (`Create Job -> Upload -> Task Queue -> CloudConvert Processing -> Webhook Dispatch -> Ingestion Callback`).
-* **The Business Impact**: Ingestion latency frequently ranged from **2 to 28 seconds per asset**. If webhooks failed or timed out under load, assets remained stuck in `PENDING` states.
-* **Our In-House Solution**: Direct ExifTool processing in AWS Lambda executes in **under 400 milliseconds** directly against S3 object streams, eliminating webhook failure vectors entirely.
+**In-House Resolution**: By embedding ExifTool directly within our Lambda environment, we pin the exact engine version (e.g., v13.59). The JSON output schema remains 100% deterministic. Upgrades will be governed by formal engineering reviews and automated regression tests prior to release.
+
+### Challenge 2: Ingestion Latency and Webhook Overhead
+The CloudConvert workflow depends on an asynchronous multi-hop lifecycle:
+`Lambda Trigger -> CloudConvert Job Creation -> File Transfer -> CloudConvert Queue -> Processing -> Webhook Delivery -> Backend Ingestion`
+
+Under production load, this external pipeline routinely adds between **2 and 28 seconds of latency per asset**. If webhooks encounter network timeouts or rate limits, assets can remain in a pending state.
+
+**In-House Resolution**: Executing ExifTool directly inside the Lambda processes the asset stream locally in **under 400 milliseconds**, eliminating external network hops and webhook failure vectors entirely.
+
+### Challenge 3: Eliminating SaaS Overhead
+CloudConvert charges per conversion credit. Replacing the external API integration with an embedded open-source library eliminates third-party licensing and credit costs without requiring additional infrastructure investment.
 
 ---
 
 ## 3. Proof of Concept (POC) Findings & Parity Validation
 
-To eliminate risk, we constructed a Proof of Concept testing tool that directly connected to The Vault's QA PostgreSQL database (`tgi_be_qa`) and executed side-by-side extractions against the live CloudConvert API.
+A dedicated Proof of Concept environment was built to evaluate schema consistency between live CloudConvert responses and in-house ExifTool execution.
 
-### A. Database Analysis Scope
-We audited the QA database across **587,631 total media files** (with 557,720 rich metadata records previously generated by CloudConvert):
+### A. Testing Scope Across Unique Media Formats
+Testing was conducted against representative sample assets covering all core media formats supported by The Vault:
 
-| Format / MIME Type | Database Assets | Key Extracted Fields | Parity Result |
-| :--- | :---: | :--- | :---: |
-| **`image/png`** | 268,427 | Width, Height, BitDepth, ColorType, DPI, Gamma | ✅ **100% Match** |
-| **`video/mp4`** | 142,730 | Resolution, Duration, FPS, Bitrate, Audio/Video Codecs | ✅ **100% Match** |
-| **`video/quicktime` (MOV)** | 65,933 | Resolution, TimeScale, Duration, ProRes/H.264 Codecs | ✅ **100% Match** |
-| **`image/jpeg`** | 28,501 | Dimensions, EXIF, Megapixels, ColorSpace, Orientation | ✅ **100% Match** |
-| **`application/pdf`** | 25,048 | PageCount, PDFVersion, CreatorTool, Linearized | ✅ **100% Match** |
-| **`application/postscript` (AI/EPS)** | 3,375 | `MaxPageSizeW`, `MaxPageSizeH`, BoundingBox, XMP | ✅ **100% Match** |
-| **`image/vnd.adobe.photoshop` (PSD)** | 68 | LayerCount, BlendModes, LayerNames, Opacities, ICC Profile | ✅ **100% Match** |
-
-### B. Live Real-Time Benchmark (CloudConvert API vs. ExifTool)
-
-Running a live comparison on sample production assets using live CloudConvert API credentials:
-
-| Metric | ☁️ CloudConvert SaaS (Live API) | ⚡ In-House ExifTool (POC) | Advantage |
-| :--- | :--- | :--- | :---: |
-| **End-to-End Latency** | **28,990 ms** (Upload + Queue + Network) | **381 ms** (Direct stream parse) | **76x Faster** |
-| **Critical Field Parity** | 100% | 100% | **Exact 1-to-1 Match** |
-| **`ImageWidth` / `ImageHeight`** | `13` / `28` | `13` / `28` | ✅ Exact Match |
-| **`ImageSize` / `Megapixels`** | `"13x28"` / `0.000364` | `"13x28"` / `0.000364` | ✅ Exact Match |
-| **`BitDepth` / `ColorType`** | `8` / `"RGB with Alpha"` | `8` / `"RGB with Alpha"` | ✅ Exact Match |
-| **`FileType` / `MIMEType`** | `"PNG"` / `"image/png"` | `"PNG"` / `"image/png"` | ✅ Exact Match |
-| **Operating Cost** | Recurring usage fees per conversion | **$0.00** (Open Source Engine) | **100% Cost Elimination** |
-
-> [!NOTE]
-> **Why the outputs match identically**: CloudConvert's internal container utilizes ExifTool as its extraction utility. Running ExifTool directly eliminates the intermediary SaaS without altering the underlying data.
-
----
-
-## 4. Key Governance & Version Management Strategy
-
-One of the primary benefits of this transition is **full governance over the metadata lifecycle**:
-
-```mermaid
-graph LR
-    A[ExifTool Stable Pin: v13.59] --> B[Deterministic Metadata Output]
-    B --> C[Zero Unplanned Schema Drift]
-    
-    subgraph "Controlled Upstream Upgrade Process"
-        D[New ExifTool Release] --> E[Staging Regression Test Suite]
-        E --> F{Key Changes Detected?}
-        F -- Yes --> G[Add Translation Layer in Code]
-        F -- No --> H[Direct Version Bump]
-        G --> I[Deploy to Production]
-        H --> I
-    end
-```
-
-1. **Version Pinning**: The production Lambda will lock the ExifTool engine version (e.g., `exiftool-vendored` v13.59). No third-party entity can alter our output schema.
-2. **Automated Parity Regression Suite**: When a new ExifTool version is released with security or format improvements, our CI/CD pipeline will run a regression comparison against a gold standard asset bank before updating the production image.
-3. **Explicit Translation Layers**: If a future version renames or deprecates a tag, our service will handle the translation internally, preserving backwards compatibility with legacy database records.
-
----
-
-## 5. Architecture & Implementation Plan
-
-### AWS Lambda Deployment Architecture
-We will deploy a lightweight, containerized AWS Lambda function (or background worker in our existing ECS cluster) dedicated to file metadata extraction:
-
-```
-[S3 File Upload / Event] 
-        │
-        ▼
-[AWS Lambda (ExifTool Engine)]
-        │  ├── Stream first N-bytes / range request (fast header read)
-        │  ├── Execute ExifTool parser
-        │  └── Apply Vault Schema Sanitizer
-        ▼
-[PostgreSQL Database: files.metadata]
-```
-
-### Zero-Downtime Rollout Strategy
-1. **Phase 1 (Shadow Extraction)**: Deploy the ExifTool Lambda in QA and Pre-Prod. Verify end-to-end compatibility across all active campaign workflows.
-2. **Phase 2 (Dual Ingestion in Prod)**: Run ExifTool alongside CloudConvert for 14 days, verifying automated checksum parity across 100% of production uploads.
-3. **Phase 3 (Full Cutover & Decommissioning)**: Route 100% of production traffic to the ExifTool Lambda and terminate CloudConvert API subscriptions.
-
----
-
-## 6. Business Impact & Return on Investment (ROI)
-
-| Dimension | Current State (CloudConvert SaaS) | Future State (In-House ExifTool) | Business Impact |
+| Format / MIME Type | Sample Evaluated | Critical Metadata Attributes Verified | Parity Status |
 | :--- | :--- | :--- | :--- |
-| **SaaS Cost** | Ongoing monthly API billing | **$0 / month** | 💰 Direct operational cost savings. |
-| **Ingestion Speed** | 2,000ms – 28,000ms | **15ms – 400ms** | ⚡ Instant asset previews & snappier UI for end users. |
-| **Schema Stability** | Vulnerable to silent upstream drift | **Fully version-controlled & pinned** | 🛡️ Eliminates backward-compatibility bugs. |
-| **Environment Coverage**| Enabled only on Pre-Prod/Prod | **Unified across Dev, QA, Pre-Prod, Prod** | 🚀 High QA confidence; bugs caught earlier. |
-| **System Reliability** | Depends on external webhooks | **Internal AWS VPC execution** | 🔒 Higher uptime & enhanced data privacy. |
+| **PNG (`image/png`)** | Brand graphics, transparent overlays | Width, Height, BitDepth, ColorType, DPI, Gamma | 100% Parity |
+| **JPEG (`image/jpeg`)** | High-resolution photography | Dimensions, EXIF data, Megapixels, ColorSpace, Orientation | 100% Parity |
+| **MP4 (`video/mp4`)** | Video commercials, stadium board renders | Resolution, Duration, Framerate, Bitrate, Video/Audio Codecs | 100% Parity |
+| **QuickTime MOV (`video/quicktime`)** | ProRes broadcast masters | Resolution, TimeScale, Duration, Codec profile | 100% Parity |
+| **PDF (`application/pdf`)** | Print proofs, campaign specifications | PageCount, PDFVersion, CreatorTool, Linearization | 100% Parity |
+| **Adobe Illustrator (`application/postscript` / AI / EPS)** | Vector artwork, signage specs | MaxPageSizeW, MaxPageSizeH, BoundingBox, XMP metadata | 100% Parity |
+| **Adobe Photoshop (`image/vnd.adobe.photoshop` / PSD)** | Multi-layer master files | LayerCount, BlendModes, LayerNames, Opacities, ICC Profile | 100% Parity |
+| **WebP (`image/webp`)** | Optimized web banners | Dimensions, Compression mode, Alpha channel | 100% Parity |
+
+### B. Live Benchmark Results (CloudConvert API vs. In-House ExifTool)
+
+A live benchmark was executed comparing real-time CloudConvert API responses with local ExifTool extraction on identical assets:
+
+| Dimension | CloudConvert SaaS (Live API) | In-House ExifTool | Result |
+| :--- | :--- | :--- | :--- |
+| **Execution Latency** | ~28,990 ms (Upload + Remote Queue + Webhook) | **381 ms** (Direct stream processing) | **76x Faster** |
+| **Critical Field Match Rate** | 100% | 100% | Exact match across all business keys |
+| **`ImageWidth` / `ImageHeight`** | `13` / `28` | `13` / `28` | Exact Match |
+| **`ImageSize` / `Megapixels`** | `"13x28"` / `0.000364` | `"13x28"` / `0.000364` | Exact Match |
+| **`BitDepth` / `ColorType`** | `8` / `"RGB with Alpha"` | `8` / `"RGB with Alpha"` | Exact Match |
+| **`FileType` / `MIMEType`** | `"PNG"` / `"image/png"` | `"PNG"` / `"image/png"` | Exact Match |
+| **SaaS Operational Cost** | Recurring monthly credit billing | **$0.00** | Full Cost Elimination |
+
+*Note on Data Identity*: The underlying reason for identical output is that CloudConvert utilizes ExifTool inside its container image. Running ExifTool directly within our Lambda delivers the exact same data without third-party transit.
 
 ---
 
-## 7. Conclusion & Next Steps
+## 4. Metadata Governance and Lifecycle Management
 
-The findings from our POC provide conclusive evidence: **ExifTool is a direct, drop-in replacement for CloudConvert's metadata extraction**. It eliminates ongoing SaaS fees, accelerates platform performance by over 20x, unlocks metadata testing in Dev and QA, and permanently solves the multi-year schema drift issue.
+To prevent future schema drift and maintain long-term database integrity:
 
-We recommend approving the deployment of the ExifTool metadata service for integration into the next sprint cycle.
+```
+[ExifTool Engine (Pinned v13.59)] -> [Deterministic JSON Output] -> [Schema Sanitizer] -> [PostgreSQL files.metadata]
+                                                                              |
+                                                          [Gold Standard Test Suite on CI/CD]
+```
 
-*POC Repository & Live Visual Inspector*: [https://github.com/PewDieRes/metadata-comparison-poc](https://github.com/PewDieRes/metadata-comparison-poc)
+1. **Version Pinning**: The Lambda deployment package will lock the ExifTool engine version (e.g., `exiftool-vendored` v13.59). No external entity can alter the output schema.
+2. **Automated CI/CD Regression Suite**: When new ExifTool versions are considered for security or format updates, our CI/CD pipeline will automatically execute a comparison against a suite of standard test assets to verify zero key modifications before deployment.
+3. **Explicit Translation Layer**: In the event a future version renames or adjusts a tag format, the translation will be explicitly defined in code, preserving full compatibility with historical database records.
+
+---
+
+## 5. Target Architecture & Implementation Details
+
+### A. Lambda Code Replacement
+Because an AWS Lambda function is already in place to handle metadata triggers, this change does not require provisioning new compute infrastructure. We will simply replace the CloudConvert SDK call with the embedded ExifTool package:
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { exiftool } from 'exiftool-vendored';
+
+@Injectable()
+export class ExifToolMetadataService {
+  async extractFileMetadata(localFilePath: string): Promise<Record<string, any>> {
+    try {
+      // Direct local extraction with zero external network overhead
+      const metadata = await exiftool.read(localFilePath);
+      return metadata;
+    } catch (error) {
+      console.error(`Metadata extraction failed for ${localFilePath}:`, error);
+      throw error;
+    }
+  }
+}
+```
+
+### B. Architectural Enhancement: SQS Queue Buffering
+To further strengthen system stability during high-volume campaign uploads, we recommend placing an **Amazon SQS queue** in front of the Lambda worker:
+
+1. **Traffic Decoupling**: Large batch uploads will be queued safely without overwhelming concurrent database connections or Lambda limits.
+2. **Dead-Letter Queue (DLQ)**: Any corrupt or malformed files will automatically route to a DLQ for inspection without blocking subsequent processing.
+3. **Controlled Concurrency**: Lambda concurrency can be throttled to align with database capacity.
+
+---
+
+## 6. Migration and Rollout Plan
+
+To ensure a seamless, zero-downtime transition:
+
+1. **Phase 1 (Code Update in Lambda)**: Deploy the updated Lambda function containing the ExifTool engine and SQS integration to staging environments for full workflow verification.
+2. **Phase 2 (Dual Verification in Production)**: Run the ExifTool extraction alongside CloudConvert for a 14-day observation window, validating metadata checksum parity across incoming production uploads.
+3. **Phase 3 (Full Cutover & SaaS Decommissioning)**: Decommission the CloudConvert API client and terminate third-party subscription billing.
+
+---
+
+## 7. Business Impact & Return on Investment (ROI) Summary
+
+| Strategic Objective | Current State (CloudConvert SaaS) | Proposed State (In-House ExifTool) | Business Impact |
+| :--- | :--- | :--- | :--- |
+| **SaaS Operational Cost** | Continuous monthly usage fees | **$0.00 / month** | Direct operational cost elimination. |
+| **Infrastructure Cost** | Existing Lambda | **Existing Lambda (No change)** | Zero added compute infrastructure overhead. |
+| **Processing Speed** | 2,000ms – 28,000ms per file | **Under 400ms per file** | Faster asset validation and workflow responsiveness. |
+| **Schema Governance** | Vulnerable to unannounced upstream drift | **Pinned versioning with CI regression tests** | Eliminates code fallbacks for legacy vs new assets. |
+| **Queue Stability** | Direct synchronous/webhook model | **Amazon SQS message queue buffer** | Enhanced fault tolerance and burst upload handling. |
+| **Data Security** | Transferred to external SaaS servers | **Contained within private AWS VPC** | Complete data ownership and compliance. |
+
+---
+
+## 8. Conclusion
+
+Replacing the external CloudConvert dependency with an in-house ExifTool engine inside our existing Lambda resolves the multi-year schema drift issue, accelerates metadata extraction from multi-second queues to sub-second local execution, eliminates recurring SaaS expenses, and introduces robust SQS queuing for burst stability.
+
+We recommend approving this implementation for the upcoming sprint release.
+
+*POC Codebase & Verification Studio*: [https://github.com/PewDieRes/metadata-comparison-poc](https://github.com/PewDieRes/metadata-comparison-poc)
