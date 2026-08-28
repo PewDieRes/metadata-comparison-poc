@@ -1,6 +1,5 @@
 # Executive Proposal: Standardizing Media Metadata Extraction via In-House Engine
 
-**Prepared by**: Mihir Vaze  
 **Status**: Proposal & Validated POC  
 **Date**: August 2026  
 
