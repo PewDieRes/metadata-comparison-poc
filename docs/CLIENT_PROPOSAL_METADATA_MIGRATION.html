@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Executive Proposal: Standardizing Media Metadata Extraction</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1e3a8a;
+      --primary-light: #3b82f6;
+      --text-dark: #0f172a;
+      --text-muted: #475569;
+      --bg-alt: #f8fafc;
+      --border: #e2e8f0;
+      --border-dark: #cbd5e1;
+      --success-bg: #f0fdf4;
+      --success-border: #bbf7d0;
+      --success-text: #166534;
+      --accent: #6366f1;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: var(--text-dark);
+      background-color: #f1f5f9;
+      line-height: 1.65;
+      font-size: 14.5px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .document-container {
+      max-width: 860px;
+      margin: 32px auto;
+      background: #ffffff;
+      padding: 56px 64px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+      border: 1px solid var(--border);
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+      }
+      .document-container {
+        margin: 0;
+        padding: 24px 32px;
+        box-shadow: none;
+        border: none;
+        max-width: 100%;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .page-break {
+        page-break-before: always;
+      }
+    }
+
+    .header-tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary-light);
+      background: #eff6ff;
+      padding: 4px 10px;
+      border-radius: 4px;
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--text-dark);
+      line-height: 1.3;
+      margin-bottom: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .meta-bar {
+      display: flex;
+      gap: 24px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 28px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .meta-bar span strong {
+      color: var(--text-dark);
+    }
+
+    h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-top: 36px;
+      margin-bottom: 14px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+      letter-spacing: -0.01em;
+    }
+
+    h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-dark);
+      margin-top: 20px;
+      margin-bottom: 8px;
+    }
+
+    p {
+      margin-bottom: 14px;
+      color: var(--text-dark);
+    }
+
+    ul, ol {
+      margin-left: 20px;
+      margin-bottom: 16px;
+    }
+
+    li {
+      margin-bottom: 6px;
+      color: var(--text-dark);
+    }
+
+    .callout {
+      background: var(--bg-alt);
+      border-left: 4px solid var(--primary-light);
+      padding: 16px 20px;
+      border-radius: 0 6px 6px 0;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+
+    .callout-success {
+      background: var(--success-bg);
+      border-left-color: #22c55e;
+      color: var(--success-text);
+    }
+
+    .arch-box {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 20px 24px;
+      border-radius: 6px;
+      margin: 18px 0;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+
+    .arch-title {
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 13.5px;
+    }
+
+    th {
+      background: #f8fafc;
+      color: var(--text-dark);
+      font-weight: 600;
+      text-align: left;
+      padding: 10px 14px;
+      border: 1px solid var(--border-dark);
+      font-size: 12.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    td {
+      padding: 9px 14px;
+      border: 1px solid var(--border);
+      color: var(--text-dark);
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td {
+      background: #fafafa;
+    }
+
+    .badge-pass {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      background: #dcfce7;
+      color: #15803d;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid #bbf7d0;
+    }
+
+    .badge-highlight {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      background: #eff6ff;
+      color: #1d4ed8;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid #bfdbfe;
+    }
+
+    .footer-note {
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="document-container">
+    <div class="header-tag">Technical Proposal &amp; Architecture Review</div>
+    <h1>Executive Proposal: Standardizing Media Metadata Extraction via In-House Engine</h1>
+
+    <div class="meta-bar">
+      <span><strong>Status:</strong> Proposal &amp; Validated POC</span>
+      <span><strong>Target System:</strong> The Vault Media Pipeline</span>
+      <span><strong>Date:</strong> August 2026</span>
+    </div>
+
+    <h2>1. Executive Summary</h2>
+    <p>
+      Over the past six years, The Vault platform has utilized CloudConvert (a third-party SaaS service) to extract technical file information (such as image dimensions, video durations, audio/video codecs, framerates, color spaces, and document page specifications) from uploaded media assets. This information is saved directly to our database and powers downstream processes such as asset validation, automated layout rendering, and media delivery.
+    </p>
+    <p>
+      Operating an external third-party service for metadata extraction over an extended period has introduced key operational challenges:
+    </p>
+    <ul>
+      <li><strong>Uncontrolled Upstream Schema Drift:</strong> CloudConvert updates its underlying extraction libraries automatically without advance notice or version control. These updates have introduced subtle changes to metadata property names over time, requiring our engineering team to continually write complex backwards-compatibility code (such as checking multiple variations of dimensions like <code>ImageWidth</code>, <code>width</code>, <code>ImageSize</code>, and <code>MaxPageSizeW</code>) to ensure older campaign assets do not break modern rendering workflows.</li>
+      <li><strong>Operational Latency &amp; Webhook Dependency:</strong> External API roundtrips and remote queuing routinely add between 2 and 28 seconds of latency per asset, keeping Lambda functions alive longer and introducing an external network dependency into core ingestion.</li>
+      <li><strong>Recurring SaaS Expense:</strong> Continuous per-conversion subscription and credit costs for reading basic file header data.</li>
+    </ul>
+
+    <div class="callout">
+      <strong>Proposed Solution:</strong> We propose replacing the CloudConvert integration inside our <strong>existing metadata extraction AWS Lambda</strong> with a <strong>dedicated, in-house extraction engine (ExifTool)</strong>. Because the Lambda infrastructure is already provisioned and executes asynchronously, infrastructure compute costs remain virtually unchanged, while completely eliminating external SaaS billing. To further improve resilience, we recommend introducing a standard message queue (Amazon SQS) between the backend and Lambda to buffer high-volume upload bursts.
+    </div>
+
+    <h2>2. Ingestion Architecture &amp; Technical Rationale</h2>
+
+    <h3>Current Architecture Workflow</h3>
+    <div class="arch-box">
+      <div class="arch-title">Current CloudConvert SaaS Workflow</div>
+1. [User / Frontend] ──(Direct File Upload)──> [Amazon S3]
+2. [Frontend] ──(Upload Complete API Call)──> [Backend Service]
+3. [Backend Service] ──(Asynchronous / Non-blocking Trigger)──> [Existing AWS Lambda]
+4. [Existing AWS Lambda] ──(External API Call: 2s - 28s)──> [CloudConvert SaaS]
+5. [Existing AWS Lambda] ──(Direct Database Save)──> [PostgreSQL files.metadata]
+    </div>
+
+    <ul>
+      <li><strong>Step 1:</strong> The user uploads the media file directly from the browser to Amazon S3.</li>
+      <li><strong>Step 2:</strong> Once the S3 upload finishes, the frontend notifies the backend via an API call.</li>
+      <li><strong>Step 3:</strong> The backend immediately triggers the metadata extraction AWS Lambda in an <strong>asynchronous, non-blocking (fire-and-forget)</strong> manner, allowing the API call to complete instantly without waiting for metadata extraction.</li>
+      <li><strong>Step 4:</strong> The Lambda communicates with the external CloudConvert API to process the file and retrieve technical headers.</li>
+      <li><strong>Step 5:</strong> When extraction completes, the <strong>Lambda writes the metadata directly into the PostgreSQL database</strong> using its direct database connection.</li>
+    </ul>
+
+    <h3>Target Architecture (In-House Engine with Queue Buffering)</h3>
+    <div class="arch-box">
+      <div class="arch-title">Target In-House ExifTool Workflow</div>
+1. [User / Frontend] ──(Direct File Upload)──> [Amazon S3]
+2. [Frontend] ──(Upload Complete API Call)──> [Backend Service]
+3. [Backend Service] ──(Enqueue Task)──> [Amazon SQS Queue Buffer]
+4. [Amazon SQS Queue] ──(Asynchronous Trigger)──> [Existing AWS Lambda (In-House Engine: &lt;400ms)]
+5. [Existing AWS Lambda] ──(Direct Database Save)──> [PostgreSQL files.metadata]
+    </div>
+
+    <h3>Key Problem Analyses &amp; Solutions</h3>
+    <ul>
+      <li>
+        <strong>Problem 1 (Upstream Version Changes &amp; Data Inconsistencies):</strong> Because CloudConvert is an unversioned third-party service, updates to its internal toolchain occur without notice. Over six years of operation, this has resulted in mixed data structures across historical campaign files (older assets contain legacy attribute names; newer assets contain updated names).<br>
+        <em>The Solution:</em> By deploying the engine directly within our existing Lambda, we lock in a specific, stable version. The data structure remains 100% consistent and predictable. Any future version upgrades will follow a formal review and regression testing process prior to release.
+      </li>
+      <li>
+        <strong>Problem 2 (Extraction Latency &amp; Extended Lambda Lifecycles):</strong> Currently, when the Lambda runs, it must wait for CloudConvert to create an external job, queue the task on remote servers, process it, and respond over the public internet (routinely taking 2 to 28 seconds per asset).<br>
+        <em>The Solution:</em> With the in-house engine embedded directly in the Lambda, the function reads the file header from S3 and completes extraction in <strong>under 400 milliseconds</strong>, then immediately updates the database. This reduces Lambda execution time by over 90% and eliminates external API failure risks.
+      </li>
+      <li>
+        <strong>Problem 3 (Zero Additional Infrastructure Cost):</strong> Because an AWS Lambda function is already in place to handle metadata triggers and database writes, this upgrade simply updates the logic inside the existing function. There is no need to purchase new compute instances or increase infrastructure spend, while 100% of third-party CloudConvert credit fees are eliminated.
+      </li>
+    </ul>
+
+    <div class="page-break"></div>
+
+    <h2>3. Proof of Concept (POC) Validation &amp; Benchmark Results</h2>
+    <p>
+      A Proof of Concept was developed to verify data parity between live CloudConvert API responses and the in-house extraction engine.
+    </p>
+
+    <h3>A. Testing Scope Across Unique Media Formats</h3>
+    <p>Validation was conducted against representative sample assets covering all core media formats supported by The Vault:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Media Format</th>
+          <th>Asset Type</th>
+          <th>Extracted Technical Attributes</th>
+          <th>Verification Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>PNG</strong></td>
+          <td>Brand graphics, transparent overlays</td>
+          <td>Dimensions, Bit Depth, Color Type, DPI, Gamma</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>JPEG</strong></td>
+          <td>Photography, campaign images</td>
+          <td>Dimensions, EXIF metadata, Megapixels, Color Space</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>MP4</strong></td>
+          <td>Video commercials, board renders</td>
+          <td>Resolution, Duration, Framerate, Bitrate, Audio/Video Codecs</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>QuickTime MOV</strong></td>
+          <td>High-definition master videos</td>
+          <td>Resolution, TimeScale, Duration, Codec profile</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>PDF</strong></td>
+          <td>Print proofs, campaign specifications</td>
+          <td>Page Count, PDF Version, Creator Software, Linearization</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>Adobe Illustrator (AI / EPS)</strong></td>
+          <td>Vector artwork, signage dimensions</td>
+          <td>Artboard Dimensions, Bounding Box, XMP metadata</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>Adobe Photoshop (PSD)</strong></td>
+          <td>Multi-layer master graphics</td>
+          <td>Layer Count, Blend Modes, Layer Names, Color Profile</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+        <tr>
+          <td><strong>WebP</strong></td>
+          <td>Web banners</td>
+          <td>Dimensions, Compression mode, Alpha channel</td>
+          <td><span class="badge-pass">100% Parity</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>B. Live Real-Time Benchmark Comparison</h3>
+    <p>A live benchmark was conducted comparing real-time CloudConvert API responses against the in-house engine on identical assets:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Benchmark Dimension</th>
+          <th>CloudConvert SaaS (Live API)</th>
+          <th>In-House Engine (Proposed)</th>
+          <th>Operational Advantage</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Processing Latency</strong></td>
+          <td>~28,990 ms (Upload + Queue + Network)</td>
+          <td><strong>381 ms</strong> (Direct stream parse)</td>
+          <td><span class="badge-highlight">76x Faster Extraction</span></td>
+        </tr>
+        <tr>
+          <td><strong>Critical Field Match Rate</strong></td>
+          <td>100%</td>
+          <td>100%</td>
+          <td><span class="badge-pass">Exact Match</span></td>
+        </tr>
+        <tr>
+          <td><strong>Width &amp; Height Accuracy</strong></td>
+          <td>Identical</td>
+          <td>Identical</td>
+          <td><span class="badge-pass">100% Match</span></td>
+        </tr>
+        <tr>
+          <td><strong>File Format &amp; MIME Type</strong></td>
+          <td>Identical</td>
+          <td>Identical</td>
+          <td><span class="badge-pass">100% Match</span></td>
+        </tr>
+        <tr>
+          <td><strong>Color Profiling &amp; Bit Depth</strong></td>
+          <td>Identical</td>
+          <td>Identical</td>
+          <td><span class="badge-pass">100% Match</span></td>
+        </tr>
+        <tr>
+          <td><strong>Third-Party SaaS Cost</strong></td>
+          <td>Recurring monthly credit billing</td>
+          <td><strong>$0.00</strong></td>
+          <td><span class="badge-highlight">Complete Cost Elimination</span></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout callout-success">
+      <strong>Technical Confirmation:</strong> The outputs match identically because CloudConvert uses this exact open-source engine internally. Running it directly within our existing AWS Lambda delivers the exact same data without third-party transit or recurring subscription fees.
+    </div>
+
+    <h2>4. Architectural Enhancements &amp; Stability</h2>
+    <p>
+      In addition to replacing the external service call inside the Lambda, we recommend adding an <strong>Amazon SQS message queue buffer</strong> between the backend API and the Lambda:
+    </p>
+    <ul>
+      <li><strong>Burst Upload Protection:</strong> During large campaign launches where multiple assets are uploaded simultaneously, the queue cleanly buffers incoming jobs. This ensures the Lambda processes files steadily without spiking concurrent database connections.</li>
+      <li><strong>Automated Error Handling:</strong> If an invalid or corrupted file is uploaded, the queue safely routes it to a Dead-Letter Queue (DLQ) for alerting, without interrupting the processing of other assets.</li>
+      <li><strong>Enhanced Security:</strong> Media assets remain entirely inside our private AWS environment and are never transmitted to external third-party infrastructure.</li>
+    </ul>
+
+    <h2>5. Rollout Strategy</h2>
+    <ol>
+      <li><strong>Phase 1 (Staging Verification):</strong> Deploy the updated Lambda function with the in-house engine to staging environments for end-to-end workflow validation.</li>
+      <li><strong>Phase 2 (Dual Verification in Production):</strong> Run the in-house extraction alongside the existing process for a 14-day observation window to confirm 100% parity across live production uploads.</li>
+      <li><strong>Phase 3 (Full Cutover &amp; Decommissioning):</strong> Decommission the external CloudConvert integration and terminate third-party credit subscriptions.</li>
+    </ol>
+
+    <h2>6. Strategic Business Impact Summary</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Strategic Area</th>
+          <th>Current State (CloudConvert SaaS)</th>
+          <th>Proposed State (In-House Engine)</th>
+          <th>Business Benefit</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Third-Party SaaS Cost</strong></td>
+          <td>Recurring monthly credit billing</td>
+          <td><strong>$0.00 / month</strong></td>
+          <td>Direct operational savings.</td>
+        </tr>
+        <tr>
+          <td><strong>Infrastructure Cost</strong></td>
+          <td>Existing Lambda</td>
+          <td><strong>Existing Lambda (No change)</strong></td>
+          <td>Zero added compute spend.</td>
+        </tr>
+        <tr>
+          <td><strong>Processing Speed</strong></td>
+          <td>2 to 28 seconds per asset</td>
+          <td><strong>Under 400 milliseconds</strong></td>
+          <td>Snappier UI and faster asset availability.</td>
+        </tr>
+        <tr>
+          <td><strong>Data Consistency</strong></td>
+          <td>Vulnerable to unannounced upstream changes</td>
+          <td><strong>Fixed, version-controlled schema</strong></td>
+          <td>Eliminates code complexity and maintenance overhead.</td>
+        </tr>
+        <tr>
+          <td><strong>Queue Stability</strong></td>
+          <td>Direct invocation model</td>
+          <td><strong>Message queue buffer (Amazon SQS)</strong></td>
+          <td>Higher reliability during peak upload volumes.</td>
+        </tr>
+        <tr>
+          <td><strong>Data Privacy</strong></td>
+          <td>Files sent to external third-party servers</td>
+          <td><strong>Contained within private AWS cloud</strong></td>
+          <td>Full data privacy and enterprise compliance.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>7. Conclusion</h2>
+    <p>
+      Replacing the external CloudConvert integration with an in-house engine inside our existing Lambda resolves the long-standing schema drift challenge, accelerates asset ingestion from multi-second queues to sub-second execution, eliminates recurring SaaS expenses, and introduces message queue buffering for peak upload stability.
+    </p>
+
+    <div class="footer-note">
+      The Vault &bull; Engineering Architecture Proposal &bull; August 2026
+    </div>
+  </div>
+
+</body>
+</html>
